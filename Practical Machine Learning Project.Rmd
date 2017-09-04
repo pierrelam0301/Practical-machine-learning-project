@@ -1,0 +1,164 @@
+---
+title: "Practical Machine Learning project"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Background and Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement ??? a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this project, our goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+The main goal of the project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. 
+
+## 2. Data description
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har.
+
+Source: 
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har#ixzz4r0xalkVX
+
+Collaborators:
+
+- Wallace Ugulino (wugulino at inf dot puc-rio dot br)
+- Eduardo Velloso
+- Hugo Fuks 
+
+Read more: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har#ixzz4r0y1Batn
+
+## 3. Exploratory Analysis
+
+### a. Loading Data
+
+```{r, message=FALSE}
+library(knitr)
+library(rattle)
+library(randomForest)
+library(caret)
+library(rpart)
+library(corrplot)
+library(rpart.plot)
+set.seed(1122)
+
+trainURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testURL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+train <- read.csv(url(trainURL))
+test <- read.csv(url(testURL))
+
+inTrain <- createDataPartition(train$classe, p = 0.7, list = FALSE)
+trainset <- train[inTrain, ]
+testset <- train[-inTrain, ]
+dim(trainset)
+dim(testset)
+```
+
+### b. Clean Data
+
+Both datasets have 160 variables, we will remove NAs, ID, and the Near Zero variance variables.  
+
+```{r}
+NZV <- nearZeroVar(trainset)
+trainset <- trainset[ , -NZV]
+testset <- testset[ , -NZV]
+dim(trainset)
+dim(testset)
+
+NAs <- sapply(trainset, function(x) mean(is.na(x))) > 0.95
+trainset <- trainset[, NAs == FALSE]
+testset <- testset [, NAs == FALSE]
+dim(trainset)
+dim(testset)
+
+# Remove ID
+trainset <- trainset[,-(1:5)]
+testset <- testset[, -(1:5)]
+dim(trainset)
+dim(testset)
+```
+
+### c. Data Analysis
+
+Finding out correlations between variables before building models. 
+
+```{r}
+corMatrix <- cor(trainset[,-54])
+corrplot(corMatrix, order = "FPC", method = "color", type = "lower", tl.cex = 0.5)
+```
+
+Darker colors show higher correlation between variables. 
+
+## 4. Model Building
+
+Generalized Boosted Model and Random Forest  will be build and the one with the higher accuracy will be used for the quiz predictions. 
+
+```{r, message=FALSE}
+set.seed(1122)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+fitGBM <- train(classe ~ ., data = trainset, method = "gbm", trControl = controlGBM, verbose = FALSE)
+fitGBM$finalModel
+
+# predict on testset
+predictGBM <- predict(fitGBM, newdata=testset)
+confGBM <- confusionMatrix(predictGBM, testset$classe)
+confGBM
+
+# plot result
+plot(confGBM$table, col = confGBM$byClass, main = paste("GBM Accuracy = ", round(confGBM$overall['Accuracy'],4)))
+```
+
+```{r}
+set.seed(1122)
+controlRF <- trainControl(method = "cv", number = 3, verboseIter = FALSE)
+fitRF <- train(classe ~ ., data= trainset, method = "rf", trControl = controlRF)
+fitRF$finalModel
+
+# predict on testset
+predictRF <- predict(fitRF, newdata = testset)
+confRF <- confusionMatrix(predictRF, testset$classe)
+confRF
+
+# plot result
+plot(confRF$table, col = confRF$byClass, main = paste("Random Forest Accuracy =", round(confRF$overall['Accuracy'],4)))
+```
+
+## 5. Select model to apply to test data
+
+Accuracy for the models are:
+
+a. GBM: 0.9861 
+b. Random Forest: 0.9971
+
+### Estimation of the out-of-sample error rate
+
+The testset was left untouched during variable selection, training and optimizing of the Random Forest model. It gives an unbiased esitmate of the Random Forest prediction accuracy of 99.71%. The out of sample error rate of the Random Forest model is calculated with the fomula below:
+
+100%-Accuracy = 0.29%
+
+Out-of-Sample error rate = 0.29%
+
+Therefore, we will use the Random Forest model to predict the 20 observation test data
+
+```{r}
+predictTest <- predict(fitRF, newdata = test)
+predictTest
+```
+
+
+
